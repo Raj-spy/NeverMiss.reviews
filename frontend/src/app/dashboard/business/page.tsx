@@ -1,15 +1,25 @@
 "use client";
-// frontend/src/app/dashboard/business/page.tsx
 
 import { useEffect, useState } from "react";
 import { businessApi } from "@/lib/api";
 import { Business } from "@/types";
-import StarRating from "@/components/ui/StarRating";
 import {
   Plus, Building2, ExternalLink, Trash2,
-  RefreshCw, X, Star, MoreVertical
+  RefreshCw, X, Star, AlertCircle, CheckCircle2
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+
+function validateMapsUrl(url: string): { valid: boolean; message: string } {
+  if (!url) return { valid: false, message: "" };
+  const lower = url.toLowerCase();
+  if (lower.includes("share.google") || lower.includes("maps.app.goo.gl")) {
+    return { valid: false, message: "❌ Share links not supported. Copy URL from browser address bar." };
+  }
+  if (lower.includes("google.com/maps") || lower.includes("maps.google.com") || lower.includes("goo.gl/maps")) {
+    return { valid: true, message: "✅ Valid Google Maps URL" };
+  }
+  return { valid: false, message: "❌ Invalid URL. Must be a google.com/maps link." };
+}
 
 export default function BusinessPage() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -19,6 +29,9 @@ export default function BusinessPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [refreshSuccess, setRefreshSuccess] = useState<string | null>(null);
+
+  const urlValidation = validateMapsUrl(form.google_maps_url);
 
   const load = async () => {
     try {
@@ -35,6 +48,10 @@ export default function BusinessPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!urlValidation.valid) {
+      setError("Please enter a valid Google Maps URL from your browser address bar.");
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -61,18 +78,29 @@ export default function BusinessPage() {
 
   const handleRefresh = async (id: string) => {
     setRefreshingId(id);
+    setRefreshSuccess(null);
     try {
       await businessApi.refresh(id);
-      alert("Review refresh started! Check back in a few minutes.");
-    } catch (err) {
-      alert("Failed to trigger refresh");
+      setRefreshSuccess(id);
+      setTimeout(() => setRefreshSuccess(null), 3000);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to trigger refresh");
     } finally {
       setRefreshingId(null);
     }
   };
 
+  const closeModal = () => {
+    setShowModal(false);
+    setError("");
+    setForm({ business_name: "", google_maps_url: "", description: "" });
+  };
+
+  // Fixed: Added missing closing brace here
+
   return (
     <div className="space-y-6 max-w-5xl">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -109,11 +137,14 @@ export default function BusinessPage() {
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => handleRefresh(biz.id)}
+                    disabled={refreshingId === biz.id}
                     className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
-                    title="Refresh reviews"
+                    title="Check for new reviews"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${refreshingId === biz.id ? "animate-spin" : ""}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshingId === biz.id ? "animate-spin text-brand-500" : ""}`} />
                   </button>
+                  
+                  {/* Fixed: Properly wrapped ExternalLink in <a> tag */}
                   <a
                     href={biz.google_maps_url}
                     target="_blank"
@@ -123,6 +154,7 @@ export default function BusinessPage() {
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
+                  
                   <button
                     onClick={() => handleDelete(biz.id, biz.business_name)}
                     className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
@@ -136,6 +168,13 @@ export default function BusinessPage() {
               <h3 className="font-display font-semibold text-zinc-900 mb-1">{biz.business_name}</h3>
               {biz.description && (
                 <p className="text-xs text-zinc-500 mb-3 line-clamp-2">{biz.description}</p>
+              )}
+
+              {refreshSuccess === biz.id && (
+                <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 rounded-lg px-2.5 py-1.5 mb-2">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Checking for new reviews in background...
+                </div>
               )}
 
               <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-100">
@@ -163,14 +202,15 @@ export default function BusinessPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100">
               <h2 className="font-display font-semibold text-zinc-900">Add Business</h2>
-              <button onClick={() => setShowModal(false)} className="btn-ghost p-2">
+              <button onClick={closeModal} className="btn-ghost p-2">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleCreate} className="p-6 space-y-4">
               {error && (
-                <div className="bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-3 rounded-xl">
+                <div className="flex items-start gap-2 bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-3 rounded-xl">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   {error}
                 </div>
               )}
@@ -179,7 +219,7 @@ export default function BusinessPage() {
                 <label className="block text-sm font-medium text-zinc-700 mb-1.5">Business Name *</label>
                 <input
                   className="input"
-                  placeholder="Acme Coffee Shop"
+                  placeholder="e.g. Godwit Cafe"
                   value={form.business_name}
                   onChange={(e) => setForm({ ...form, business_name: e.target.value })}
                   required
@@ -187,19 +227,34 @@ export default function BusinessPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-zinc-700 mb-1.5">
-                  Google Maps URL *
-                </label>
+                <label className="block text-sm font-medium text-zinc-700 mb-1.5">Google Maps URL *</label>
                 <input
-                  className="input"
-                  placeholder="https://maps.google.com/..."
+                  className={`input ${
+                    form.google_maps_url && !urlValidation.valid
+                      ? "border-red-300 focus:ring-red-200"
+                      : form.google_maps_url && urlValidation.valid
+                      ? "border-green-300 focus:ring-green-200"
+                      : ""
+                  }`}
+                  placeholder="https://www.google.com/maps/place/..."
                   value={form.google_maps_url}
                   onChange={(e) => setForm({ ...form, google_maps_url: e.target.value })}
                   required
                 />
-                <p className="text-xs text-zinc-400 mt-1">
-                  Find your business on Google Maps and copy the URL
-                </p>
+                {form.google_maps_url && (
+                  <p className={`text-xs mt-1.5 ${urlValidation.valid ? "text-green-600" : "text-red-500"}`}>
+                    {urlValidation.message}
+                  </p>
+                )}
+                <div className="mt-2 bg-zinc-50 rounded-xl p-3">
+                  <p className="text-xs font-medium text-zinc-600 mb-1">How to get the correct URL:</p>
+                  <ol className="text-xs text-zinc-500 space-y-0.5 list-decimal list-inside">
+                    <li>Open <strong>maps.google.com</strong> in your browser</li>
+                    <li>Search for your business and click on it</li>
+                    <li>Copy the URL from the <strong>browser address bar</strong></li>
+                  </ol>
+                  <p className="text-xs text-red-400 mt-1.5">⚠️ Do not use the Share button — those links will not work</p>
+                </div>
               </div>
 
               <div>
@@ -215,10 +270,14 @@ export default function BusinessPage() {
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowModal(false)} className="btn-secondary flex-1">
+                <button type="button" onClick={closeModal} className="btn-secondary flex-1">
                   Cancel
                 </button>
-                <button type="submit" className="btn-primary flex-1" disabled={submitting}>
+                <button
+                  type="submit"
+                  className="btn-primary flex-1"
+                  disabled={submitting || !urlValidation.valid}
+                >
                   {submitting ? (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
                   ) : (
@@ -230,6 +289,7 @@ export default function BusinessPage() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

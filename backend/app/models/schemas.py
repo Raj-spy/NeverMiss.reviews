@@ -34,7 +34,6 @@ class BusinessCreate(BaseModel):
     google_maps_url: str = Field(min_length=10)
     description: Optional[str] = None
 
-
 class BusinessResponse(BaseModel):
     id: str
     user_id: str
@@ -44,6 +43,8 @@ class BusinessResponse(BaseModel):
     created_at: datetime
     review_count: Optional[int] = 0
     avg_rating: Optional[float] = None
+    last_scraped_at: Optional[datetime] = None      # naya
+    total_reviews_scraped: Optional[int] = 0        # naya
 
 
 # ─── Reviews ─────────────────────────────────────────────────────────────────

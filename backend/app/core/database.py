@@ -3,17 +3,16 @@
 
 from supabase import create_client, Client
 from .config import get_settings
-from functools import lru_cache
-
-settings = get_settings()
 
 
-@lru_cache()
 def get_supabase() -> Client:
     """
-    Returns a cached Supabase client using the service role key.
-    Service role bypasses Row Level Security for backend operations.
+    Creates a fresh Supabase client per call using the service role key.
+    
+    No @lru_cache — avoids reusing stale HTTP/2 connections that cause
+    RemoteProtocolError when Supabase closes idle connections.
     """
+    settings = get_settings()  # this is still cached/fast via lru_cache in config.py
     return create_client(settings.supabase_url, settings.supabase_service_key)
 
 

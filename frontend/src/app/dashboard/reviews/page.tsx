@@ -1,8 +1,7 @@
 "use client";
 // frontend/src/app/dashboard/reviews/page.tsx
-// Main review management UI: view, filter, approve/edit/reject AI replies
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { reviewsApi, repliesApi, businessApi } from "@/lib/api";
 import { Review, Business } from "@/types";
 import StarRating from "@/components/ui/StarRating";
@@ -26,10 +25,11 @@ export default function ReviewsPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedReview, setExpandedReview] = useState<string | null>(null);
 
-  const load = async () => {
+  // ── Fix 1: useCallback so load() is stable and can be called after actions ──
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: any = {};
+      const params: Record<string, string | number | boolean> = {};
       if (selectedBiz) params.business_id = selectedBiz;
       if (selectedRating) params.rating = parseInt(selectedRating);
 
@@ -44,45 +44,76 @@ export default function ReviewsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedBiz, selectedRating]);
 
-  useEffect(() => { load(); }, [selectedBiz, selectedRating]);
+  useEffect(() => { load(); }, [load]);
+
+  // ── Fix 2: Use functional state updates to avoid stale closure on actionLoading ──
+  const setItemLoading = (id: string, value: boolean) =>
+    setActionLoading((prev) => ({ ...prev, [id]: value }));
 
   const handleApprove = async (reviewId: string, replyId: string) => {
-    setActionLoading({ ...actionLoading, [replyId]: true });
+    setItemLoading(replyId, true);
     try {
       const editedText = editingReply[reviewId];
       await repliesApi.approve(replyId, editedText);
-      setEditMode({ ...editMode, [reviewId]: false });
-      load();
+      // Fix 3: Update local state immediately so UI reflects change without waiting for reload
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === reviewId && r.reply
+            ? {
+                ...r,
+                reply: {
+                  ...r.reply,
+                  status: "approved",
+                  reply_text: editedText ?? r.reply.reply_text,
+                },
+              }
+            : r
+        )
+      );
+      setEditMode((prev) => ({ ...prev, [reviewId]: false }));
     } catch (err) {
       alert("Failed to approve reply");
     } finally {
-      setActionLoading({ ...actionLoading, [replyId]: false });
+      setItemLoading(replyId, false);
     }
   };
 
-  const handleReject = async (replyId: string) => {
-    setActionLoading({ ...actionLoading, [replyId]: true });
+  const handleReject = async (reviewId: string, replyId: string) => {
+    setItemLoading(replyId, true);
     try {
       await repliesApi.reject(replyId);
-      load();
+      // Update local state immediately
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === reviewId && r.reply
+            ? { ...r, reply: { ...r.reply, status: "rejected" } }
+            : r
+        )
+      );
     } catch (err) {
       alert("Failed to reject reply");
     } finally {
-      setActionLoading({ ...actionLoading, [replyId]: false });
+      setItemLoading(replyId, false);
     }
   };
 
   const handleRegenerate = async (reviewId: string) => {
-    setActionLoading({ ...actionLoading, [reviewId]: true });
+    setItemLoading(reviewId, true);
     try {
-      await repliesApi.regenerate(reviewId);
-      load();
+      const res = await repliesApi.regenerate(reviewId);
+      // Fix 4: Use the response data directly to update the reply in state
+      const newReply = res.data;
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === reviewId ? { ...r, reply: newReply } : r
+        )
+      );
     } catch (err) {
       alert("Failed to regenerate reply");
     } finally {
-      setActionLoading({ ...actionLoading, [reviewId]: false });
+      setItemLoading(reviewId, false);
     }
   };
 
@@ -93,10 +124,8 @@ export default function ReviewsPage() {
   };
 
   const toggleEdit = (reviewId: string, currentText: string) => {
-    setEditMode({ ...editMode, [reviewId]: !editMode[reviewId] });
-    if (!editingReply[reviewId]) {
-      setEditingReply({ ...editingReply, [reviewId]: currentText });
-    }
+    setEditMode((prev) => ({ ...prev, [reviewId]: !prev[reviewId] }));
+    setEditingReply((prev) => ({ ...prev, [reviewId]: prev[reviewId] ?? currentText }));
   };
 
   const ratingColor = (r: number) =>
@@ -208,7 +237,7 @@ export default function ReviewsPage() {
                 </div>
               </div>
 
-              {/* AI Reply Section — visible when expanded */}
+              {/* AI Reply Section */}
               {expandedReview === review.id && review.reply && (
                 <div className="border-t border-zinc-100 bg-gradient-to-b from-surface-50 to-white px-5 py-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -223,7 +252,7 @@ export default function ReviewsPage() {
                       className="input text-sm leading-relaxed h-28 resize-none mb-3"
                       value={editingReply[review.id] ?? review.reply.reply_text}
                       onChange={(e) =>
-                        setEditingReply({ ...editingReply, [review.id]: e.target.value })
+                        setEditingReply((prev) => ({ ...prev, [review.id]: e.target.value }))
                       }
                     />
                   ) : (
@@ -232,7 +261,6 @@ export default function ReviewsPage() {
                     </p>
                   )}
 
-                  {/* Actions */}
                   {review.reply.status === "pending" && (
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
@@ -265,7 +293,7 @@ export default function ReviewsPage() {
                       </button>
 
                       <button
-                        onClick={() => handleReject(review.reply!.id)}
+                        onClick={() => handleReject(review.id, review.reply!.id)}
                         className="btn-ghost flex items-center gap-1.5 text-sm py-2 px-3 text-red-500 hover:bg-red-50"
                       >
                         <X className="w-3.5 h-3.5" />
